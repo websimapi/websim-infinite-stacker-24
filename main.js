@@ -117,46 +117,23 @@ function restart() {
     startGame();
 }
 
-function waitForScores(username) {
-    return new Promise(resolve => {
-        let resolved = false;
-        const collection = room.collection('score_v1').filter({ username });
-
-        const unsubscribe = collection.subscribe(scores => {
-            if (!resolved) {
-                // The subscription might fire with a cached (possibly empty) list first.
-                // We resolve with the first list we get. The timeout will handle cases
-                // where the user has no scores and the list remains empty.
-                resolved = true;
-                resolve(scores);
-                unsubscribe();
-            }
-        });
-
-        // A timeout to ensure we don't wait forever if the user has no scores.
-        setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                // If subscribe hasn't fired, getList might have the data.
-                resolve(collection.getList());
-                unsubscribe();
-            }
-        }, 1500); // Reduced timeout as subscribe should be reasonably fast.
-    });
-}
-
 async function autoSubmitScore(replayBlob) {
     if (isScoreSubmitted) return;
     isScoreSubmitted = true; // Prevent multiple submissions
 
     try {
         const currentUser = await window.websim.getCurrentUser();
-        
-        // Wait for user's scores to ensure we have the latest data before checking.
-        const userScores = await waitForScores(currentUser.username);
+        if (!currentUser) {
+            ui.setSubmitStatus('Could not get user info.', '#f44336');
+            isScoreSubmitted = false;
+            return;
+        }
 
+        // Get the user's current scores.
+        const allScores = room.collection('score_v1').getList();
+        const userScores = allScores.filter(score => score.username === currentUser.username);
         userScores.sort((a, b) => a.score - b.score);
-        
+
         let shouldSubmit = false;
         let lowestScoreRecord = null;
 
@@ -173,18 +150,15 @@ async function autoSubmitScore(replayBlob) {
             ui.setSubmitStatus('Score too low for leaderboard.', '#f44336');
             return;
         }
-
-        if (!replayBlob) {
-            // We should still allow score submission even if replay fails
-            console.warn("Replay blob not available, submitting score without it.");
-        }
         
         let replayUrl = null;
         if (replayBlob) {
             ui.setSubmitStatus('Uploading replay...', '#ff9800');
-            replayUrl = await window.websim.upload(replayBlob);
-            if (!replayUrl) {
-                console.error("Could not get replay URL after upload. Submitting without it.");
+            try {
+                replayUrl = await window.websim.upload(replayBlob);
+            } catch (uploadError) {
+                console.error("Replay upload failed:", uploadError);
+                ui.setSubmitStatus('Replay upload failed, submitting score only.', '#ff9800');
             }
         } else {
             ui.setSubmitStatus('Submitting score...', '#ff9800');
@@ -200,7 +174,6 @@ async function autoSubmitScore(replayBlob) {
             await room.collection('score_v1').create({
                 score: currentScore,
                 replayUrl,
-                username: currentUser.username
             });
             ui.setSubmitStatus('Score submitted!', '#4CAF50');
         }

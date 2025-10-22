@@ -52,7 +52,6 @@ body {
 #perfect-streak.visible {
     opacity: 1;
     transform: translate(-50%, -200px);
-    display: block;
 }
 
 #perfect-streak.hidden {
