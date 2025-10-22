@@ -119,20 +119,29 @@ function restart() {
 
 function waitForScores(username) {
     return new Promise(resolve => {
-        const unsubscribe = room.collection('score_v1').filter({ username }).subscribe(scores => {
-            // isLoaded check is not available, so we wait for the first non-empty result
-            // or just a short delay to allow for network. A more robust way is to check if we received anything.
-            // Let's assume subscription fires with initial state.
-            resolve(scores);
-            // We only need the initial data, so we can consider unsubscribing if this doesn't run continuously
-            // For now, let's keep it simple. The logic will be based on the first received list.
+        let resolved = false;
+        const collection = room.collection('score_v1').filter({ username });
+
+        const unsubscribe = collection.subscribe(scores => {
+            if (!resolved) {
+                // The subscription might fire with a cached (possibly empty) list first.
+                // We resolve with the first list we get. The timeout will handle cases
+                // where the user has no scores and the list remains empty.
+                resolved = true;
+                resolve(scores);
+                unsubscribe();
+            }
         });
-        // A timeout to prevent infinite waiting if no data comes
+
+        // A timeout to ensure we don't wait forever if the user has no scores.
         setTimeout(() => {
-            const scores = room.collection('score_v1').filter({ username }).getList();
-            resolve(scores);
-            unsubscribe();
-        }, 2000);
+            if (!resolved) {
+                resolved = true;
+                // If subscribe hasn't fired, getList might have the data.
+                resolve(collection.getList());
+                unsubscribe();
+            }
+        }, 1500); // Reduced timeout as subscribe should be reasonably fast.
     });
 }
 
